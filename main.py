@@ -14,7 +14,7 @@ import rasterio
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
-import csv
+import json
 from datetime import datetime
 
 # Importer les modules du projet
@@ -22,11 +22,11 @@ from modules.data_loader import create_output_directory, load_and_check_data, sa
 from modules.train import extract_training_samples
 from modules.model import perform_classification, perform_classification_weighted
 from modules.evaluate import compare_classifications
-from modules.visualize import generate_classification_map, create_scatterplots, create_pca_scatterplots
+from modules.visualize import generate_classification_map, create_scatterplots, create_pca_scatterplots, visualize_spectral_signatures
 
 def log_classification_results(output_dir, weights, accuracy_std, kappa_std, accuracy_weighted, kappa_weighted, variance_explained=None):
     """
-    Enregistre automatiquement les résultats de classification dans un fichier CSV
+    Enregistre automatiquement les résultats de classification dans un fichier JSON
     
     Args:
         output_dir (str): Répertoire de sortie
@@ -37,10 +37,27 @@ def log_classification_results(output_dir, weights, accuracy_std, kappa_std, acc
         kappa_weighted (float): Coefficient Kappa de la classification pondérée
         variance_explained (list, optional): Variance expliquée par les composantes principales
     """
-    # Initialiser le fichier de log s'il n'existe pas
-    log_file = os.path.join(output_dir, 'classification_stats_log.csv')
-    temp_log_file = os.path.join(output_dir, 'classification_stats_log_temp.csv')
-    header_needed = not os.path.exists(log_file)
+    import json
+    import numpy as np
+    
+    # Fonction pour convertir les types NumPy en types Python standard
+    def convert_numpy_types(obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, list):
+            return [convert_numpy_types(item) for item in obj]
+        elif isinstance(obj, dict):
+            return {key: convert_numpy_types(value) for key, value in obj.items()}
+        else:
+            return obj
+    
+    # Initialiser le fichier de log
+    log_file = os.path.join(output_dir, 'classification_stats_log.json')
+    temp_log_file = os.path.join(output_dir, 'classification_stats_log_temp.json')
     
     # Obtenir la date et l'heure actuelles
     now = datetime.now()
@@ -48,101 +65,89 @@ def log_classification_results(output_dir, weights, accuracy_std, kappa_std, acc
     time_str = now.strftime("%H:%M:%S")
     
     try:
-        # Préparer les données
-        row_data = [date_str, time_str]
+        # Préparer les données pour cette exécution
+        band_names = ["B2 - Bleu", "B3 - Vert", "B4 - Rouge", "B5 - RedEdge05", 
+                     "B6 - RedEdge06", "B7 - RedEdge07", "B8 - PIR"]
         
-        # Ajouter les poids
-        for weight in weights:
-            row_data.append(f"{weight:.2f}")
+        # Convertir les poids en types Python standard
+        weights = convert_numpy_types(weights)
         
-        # Ajouter les métriques
-        row_data.extend([
-            f"{accuracy_std:.2f}",
-            f"{kappa_std:.2f}",
-            f"{accuracy_weighted:.2f}",
-            f"{kappa_weighted:.2f}"
-        ])
+        # Créer un dictionnaire pour les poids
+        weights_dict = {}
+        for i, name in enumerate(band_names[:len(weights)]):
+            weights_dict[f"Poids_{name}"] = round(float(weights[i]), 2)
+        
+        # Créer l'entrée pour cette exécution
+        entry = {
+            "Date": date_str,
+            "Heure": time_str,
+            "Poids": weights_dict,
+            "Precision_Standard": round(float(accuracy_std), 2),
+            "Kappa_Standard": round(float(kappa_std), 2),
+            "Precision_Ponderee": round(float(accuracy_weighted), 2),
+            "Kappa_Pondere": round(float(kappa_weighted), 2)
+        }
         
         # Ajouter les variances expliquées si disponibles
         if variance_explained is not None:
-            for i in range(min(3, len(variance_explained))):
-                row_data.append(f"{variance_explained[i]:.2f}")
+            variance_explained = convert_numpy_types(variance_explained)
+            entry["Variance_PC"] = [round(float(v), 2) for v in variance_explained[:3]]
         
-        # Si le fichier existe déjà, essayer de le lire d'abord
+        # Charger les données existantes si le fichier existe
         existing_data = []
-        header = []
-        
-        if os.path.exists(log_file) and not header_needed:
+        if os.path.exists(log_file):
             try:
-                with open(log_file, 'r', newline='', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    header = next(reader)  # Lire l'en-tête
-                    existing_data = list(reader)  # Lire toutes les lignes existantes
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                print(f"Fichier JSON existant chargé avec succès")
             except Exception as e:
-                print(f"Impossible de lire le fichier existant: {str(e)}")
-                # Si on ne peut pas lire le fichier, on va le recréer
-                header_needed = True
-                existing_data = []
+                print(f"Impossible de lire le fichier JSON existant: {str(e)}")
+                print(f"Création d'un nouveau fichier JSON")
         
-        # Créer l'en-tête si nécessaire
-        if header_needed:
-            header = ['Date', 'Heure']
-            band_names = ["B2 - Bleu", "B3 - Vert", "B4 - Rouge", "B5 - RedEdge05", 
-                         "B6 - RedEdge06", "B7 - RedEdge07", "B8 - PIR"]
-            
-            for name in band_names:
-                header.append(f"Poids_{name}")
-            
-            header.extend(['Précision_Standard', 'Kappa_Standard', 
-                          'Précision_Pondérée', 'Kappa_Pondéré'])
-            
-            if variance_explained is not None:
-                header.extend(['Variance_PC1(%)', 'Variance_PC2(%)', 'Variance_PC3(%)'])
+        # Ajouter la nouvelle entrée
+        existing_data.append(entry)
         
         # Essayer d'écrire directement dans le fichier
         try:
-            with open(log_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(header)
-                for row in existing_data:
-                    writer.writerow(row)
-                writer.writerow(row_data)
+            with open(log_file, 'w', encoding='utf-8') as f:
+                json.dump(existing_data, f, indent=2, ensure_ascii=False)
             
             print(f"\nRésultats enregistrés dans: {log_file}")
             return True
         except PermissionError:
-            # Si le fichier est verrouillé (par Excel par exemple), créer un fichier temporaire
-            print(f"\nLe fichier {log_file} est verrouillé (probablement ouvert dans Excel).")
+            # Si le fichier est verrouillé, créer un fichier temporaire
+            print(f"\nLe fichier {log_file} est verrouillé (probablement ouvert dans un autre programme).")
             print(f"Création d'un fichier temporaire: {temp_log_file}")
             
             try:
-                with open(temp_log_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(header)
-                    for row in existing_data:
-                        writer.writerow(row)
-                    writer.writerow(row_data)
+                with open(temp_log_file, 'w', encoding='utf-8') as f:
+                    json.dump(existing_data, f, indent=2, ensure_ascii=False)
                 
                 print(f"Résultats enregistrés dans le fichier temporaire: {temp_log_file}")
-                print(f"IMPORTANT: Fermez Excel et exécutez le script suivant pour fusionner les fichiers:")
-                print(f"python -c \"import os, shutil; shutil.copy2('{temp_log_file}', '{log_file}'); os.remove('{temp_log_file}')\"")
+                print(f"IMPORTANT: Fermez le fichier original et exécutez le script suivant pour fusionner les fichiers:")
+                merge_cmd = f"python -c \"import os, shutil; shutil.copy2('{temp_log_file}', '{log_file}'); os.remove('{temp_log_file}')\""
+                print(merge_cmd)
                 return True
             except Exception as e:
                 print(f"Erreur lors de la création du fichier temporaire: {str(e)}")
                 return False
     except Exception as e:
         print(f"\nErreur lors de l'enregistrement des résultats: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return False
 
 def generate_comparison_chart(output_dir):
     """
-    Génère un graphique comparatif des différentes pondérations
+    Génère un graphique comparatif des différentes pondérations à partir du fichier JSON
     
     Args:
         output_dir (str): Répertoire contenant le fichier de log
     """
-    log_file = os.path.join(output_dir, 'classification_stats_log.csv')
-    temp_log_file = os.path.join(output_dir, 'classification_stats_log_temp.csv')
+    import json
+    
+    log_file = os.path.join(output_dir, 'classification_stats_log.json')
+    temp_log_file = os.path.join(output_dir, 'classification_stats_log_temp.json')
     
     # Vérifier d'abord le fichier principal
     file_to_use = log_file
@@ -156,28 +161,38 @@ def generate_comparison_chart(output_dir):
             return False
     
     try:
-        # Charger les données
-        import pandas as pd
-        try:
-            df = pd.read_csv(file_to_use, encoding='utf-8')
-        except UnicodeDecodeError:
-            # Essayer avec une autre encodage si utf-8 échoue
-            df = pd.read_csv(file_to_use, encoding='latin1')
+        # Charger les données JSON
+        with open(file_to_use, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if not data:
+            print("Aucune donnée trouvée dans le fichier JSON")
+            return False
+        
+        print(f"Données JSON chargées avec succès: {len(data)} entrées")
         
         # Créer un identifiant unique pour chaque expérience
-        df['Expérience'] = df['Date'] + ' ' + df['Heure']
+        experiences = [f"{entry['Date']} {entry['Heure']}" for entry in data]
         
         # Créer le graphique
         plt.figure(figsize=(15, 10))
         
         # Sous-graphique 1: Précision et Kappa
         plt.subplot(2, 1, 1)
-        plt.plot(range(len(df)), df['Précision_Standard'], 'b-', marker='o', label='Précision Standard')
-        plt.plot(range(len(df)), df['Kappa_Standard'], 'b--', marker='s', label='Kappa Standard')
-        plt.plot(range(len(df)), df['Précision_Pondérée'], 'r-', marker='o', label='Précision Pondérée')
-        plt.plot(range(len(df)), df['Kappa_Pondéré'], 'r--', marker='s', label='Kappa Pondéré')
         
-        plt.xticks(range(len(df)), df['Expérience'], rotation=45, ha='right')
+        # Extraire les données de précision et kappa
+        precision_std = [entry.get('Precision_Standard', 0) for entry in data]
+        kappa_std = [entry.get('Kappa_Standard', 0) for entry in data]
+        precision_pond = [entry.get('Precision_Ponderee', 0) for entry in data]
+        kappa_pond = [entry.get('Kappa_Pondere', 0) for entry in data]
+        
+        # Tracer les courbes
+        plt.plot(range(len(data)), precision_std, 'b-', marker='o', label='Précision Standard')
+        plt.plot(range(len(data)), kappa_std, 'b--', marker='s', label='Kappa Standard')
+        plt.plot(range(len(data)), precision_pond, 'r-', marker='o', label='Précision Pondérée')
+        plt.plot(range(len(data)), kappa_pond, 'r--', marker='s', label='Kappa Pondéré')
+        
+        plt.xticks(range(len(data)), experiences, rotation=45, ha='right')
         plt.ylabel('Score')
         plt.title('Comparaison des résultats de classification avec différentes pondérations')
         plt.grid(True, linestyle='--', alpha=0.7)
@@ -186,14 +201,27 @@ def generate_comparison_chart(output_dir):
         # Sous-graphique 2: Poids des bandes
         plt.subplot(2, 1, 2)
         
-        # Identifier les colonnes de poids
-        weight_cols = [col for col in df.columns if col.startswith('Poids_')]
+        # Extraire tous les noms de bandes uniques
+        all_bands = set()
+        for entry in data:
+            if 'Poids' in entry:
+                all_bands.update(entry['Poids'].keys())
         
-        # Tracer les poids pour chaque expérience
-        for col in weight_cols:
-            plt.plot(range(len(df)), df[col].astype(float), marker='o', label=col.replace('Poids_', ''))
+        # Trier les noms de bandes
+        all_bands = sorted(list(all_bands))
         
-        plt.xticks(range(len(df)), df['Expérience'], rotation=45, ha='right')
+        # Tracer les poids pour chaque bande
+        for band in all_bands:
+            band_weights = []
+            for entry in data:
+                if 'Poids' in entry and band in entry['Poids']:
+                    band_weights.append(entry['Poids'][band])
+                else:
+                    band_weights.append(0)  # Valeur par défaut si manquante
+            
+            plt.plot(range(len(data)), band_weights, marker='o', label=band.replace('Poids_', ''))
+        
+        plt.xticks(range(len(data)), experiences, rotation=45, ha='right')
         plt.ylabel('Poids')
         plt.title('Poids appliqués aux bandes')
         plt.grid(True, linestyle='--', alpha=0.7)
@@ -202,7 +230,7 @@ def generate_comparison_chart(output_dir):
         plt.tight_layout()
         
         # Sauvegarder le graphique
-        chart_file = os.path.join(output_dir, 'comparaison_pondérations.png')
+        chart_file = os.path.join(output_dir, 'comparaison_ponderations.png')
         plt.savefig(chart_file)
         plt.close()
         
@@ -214,7 +242,7 @@ def generate_comparison_chart(output_dir):
         print(traceback.format_exc())
         return False
 
-def run_classification(input_path=None, output_dir=None, custom_config=None):
+def run_classification(input_path=None, output_dir=None, custom_config=None, weights=None):
     """
     Exécute le workflow complet de classification par maximum de vraisemblance.
     
@@ -222,9 +250,10 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
         input_path (str, optional): Chemin vers le fichier raster d'entrée. Si None, utilise le chemin par défaut.
         output_dir (str, optional): Répertoire de sortie. Si None, utilise le répertoire par défaut.
         custom_config (dict, optional): Configuration personnalisée à utiliser.
+        weights (numpy.ndarray, optional): Poids personnalisés pour les bandes.
         
     Returns:
-        bool: True si le processus s'est terminé avec succès, False sinon.
+        dict or bool: Dictionnaire contenant les résultats de la classification, ou False en cas d'erreur.
     """
     try:
         start_time = time.time()
@@ -259,7 +288,8 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
             "comparison": {
                 "enabled": True,
                 "raster_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\resultats\classification_mlc.tif"
-            }
+            },
+            "skip_visualizations": False  # Option pour sauter les visualisations (utile pour le traitement par lot)
         }
         
         if custom_config:
@@ -277,14 +307,10 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
         create_output_directory(config["output_dir"])
         
         # Initialiser le fichier de log des statistiques s'il n'existe pas
-        log_file = os.path.join(config['output_dir'], 'classification_stats_log.csv')
+        log_file = os.path.join(config['output_dir'], 'classification_stats_log.json')
         if not os.path.exists(log_file):
             with open(log_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['Date', 'Heure', 'Poids_B2', 'Poids_B3', 'Poids_B4', 'Poids_B5', 
-                                'Poids_B6', 'Poids_B7', 'Poids_B8', 'Précision_Standard', 
-                                'Kappa_Standard', 'Précision_Pondérée', 'Kappa_Pondéré', 
-                                'Variance_PC1(%)', 'Variance_PC2(%)', 'Variance_PC3(%)'])
+                json.dump([], f)
         
         # Étape 2: Chargement et vérification des données
         raster_data, meta, shapefile = load_and_check_data(config)
@@ -301,14 +327,18 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
         
         # Définir les poids optimisés pour les bandes
         optimized_weights = np.array([
-            1.0,    # B2 - Bleu [16U]
+            2.0,    # B2 - Bleu [16U]
             1.0,    # B3 - Vert [16U]
-            2.0,    # B4 - Rouge [16U]
-            2.0,    # B5 - RedEdge05 [16U]
-            2.0,    # B6 - RedEdge06 [16U]
-            2.0,    # B7 - RedEdge07 [16U]
-            3.0     # B8 - PIR [16U]
+            1.0,    # B4 - Rouge [16U]
+            5.0,    # B5 - RedEdge05 [16U]
+            1.0,    # B6 - RedEdge06 [16U]
+            1.0,    # B7 - RedEdge07 [16U]
+            4.0     # B8 - PIR [16U]
         ])
+        
+        # Utiliser les poids personnalisés s'ils sont fournis
+        if weights is not None:
+            optimized_weights = weights
         
         print("Poids définis pour les bandes:")
         for i, weight in enumerate(optimized_weights):
@@ -336,9 +366,11 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
         )
         
         # Génération des visualisations avec les poids optimisés
-        print("\nGénération des visualisations avec pondération...")
-        create_scatterplots(classes_info, config)  # Les scatterplots standards ne peuvent pas être pondérés
-        create_pca_scatterplots(classes_info, config, band_weights=optimized_weights)  # Passage des poids à PCA
+        if not config.get("skip_visualizations", False):
+            print("\nGénération des visualisations avec pondération...")
+            visualize_spectral_signatures(classes_info, config, band_weights=optimized_weights)
+            create_scatterplots(classes_info, config)  # Les scatterplots standards ne peuvent pas être pondérés
+            create_pca_scatterplots(classes_info, config, band_weights=optimized_weights)  # Passage des poids à PCA
         
         # Génération des scatterplots combinés avec PCA...
         print("\nGénération des scatterplots combinés avec PCA...")
@@ -383,30 +415,40 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
         print("\n--- Évaluation des résultats ---")
         resultats_tests = []
         
+        # Variables pour stocker les résultats
+        accuracy_std = 0
+        kappa_std = 0
+        accuracy_weighted = 0
+        kappa_weighted = 0
+        
         if config["comparison"]["enabled"]:
             try:
                 # Évaluation de la classification standard
                 print("\nÉvaluation de la classification standard...")
                 comp_std = compare_classifications(classification_std, config)
                 if comp_std:
-                    print(f"Précision standard: {comp_std['accuracy']:.2f}")
-                    print(f"Kappa standard: {comp_std['kappa']:.2f}")
+                    accuracy_std = comp_std['accuracy']
+                    kappa_std = comp_std['kappa']
+                    print(f"Précision standard: {accuracy_std:.2f}")
+                    print(f"Kappa standard: {kappa_std:.2f}")
                     resultats_tests.append({
                         "nom": "Standard (sans poids)",
-                        "precision": comp_std["accuracy"],
-                        "kappa": comp_std["kappa"]
+                        "precision": accuracy_std,
+                        "kappa": kappa_std
                     })
                 
                 # Évaluation de la classification pondérée
                 print("\nÉvaluation de la classification avec poids optimisés...")
                 comp_ponderee = compare_classifications(classification_ponderee, config)
                 if comp_ponderee:
-                    print(f"Précision avec pondération: {comp_ponderee['accuracy']:.2f}")
-                    print(f"Kappa avec pondération: {comp_ponderee['kappa']:.2f}")
+                    accuracy_weighted = comp_ponderee['accuracy']
+                    kappa_weighted = comp_ponderee['kappa']
+                    print(f"Précision avec pondération: {accuracy_weighted:.2f}")
+                    print(f"Kappa avec pondération: {kappa_weighted:.2f}")
                     resultats_tests.append({
                         "nom": "Poids optimisés",
-                        "precision": comp_ponderee["accuracy"],
-                        "kappa": comp_ponderee["kappa"]
+                        "precision": accuracy_weighted,
+                        "kappa": kappa_weighted
                     })
                 
                 # Afficher la comparaison des résultats
@@ -426,85 +468,73 @@ def run_classification(input_path=None, output_dir=None, custom_config=None):
         # Enregistrer les résultats dans le fichier de log
         try:
             log_classification_results(
-                config['output_dir'], 
-                optimized_weights, 
-                comp_std['accuracy'], 
-                comp_std['kappa'], 
-                comp_ponderee['accuracy'], 
-                comp_ponderee['kappa'], 
+                config["output_dir"],
+                optimized_weights,
+                accuracy_std,
+                kappa_std,
+                accuracy_weighted,
+                kappa_weighted,
                 variance_explained
             )
-            generate_comparison_chart(config['output_dir'])
+            print("\nRésultats enregistrés dans le fichier de log.")
         except Exception as e:
-            print(f"\nErreur lors de l'enregistrement des statistiques: {str(e)}")
+            print(f"\nERREUR lors de l'enregistrement des résultats: {str(e)}")
+            print(traceback.format_exc())
         
-        print("\n--- Sauvegarde des résultats ---")
+        # Étape 6: Enregistrement des résultats
+        print("\n--- Enregistrement des résultats ---")
         
-        # Préparer les métadonnées pour la sauvegarde
-        save_meta = meta.copy()
-        save_meta.update({
-            'count': 1,
-            'dtype': rasterio.uint8
-        })
+        # Enregistrer la classification standard
+        save_raster(
+            classification_std,
+            os.path.join(config["output_dir"], "classification_standard.tif"),
+            meta
+        )
         
-        # Sauvegarde des résultats de la classification pondérée
-        weighted_output_path = os.path.join(config["output_dir"], "classification_ponderee.tif")
-        save_raster(classification_ponderee.astype(rasterio.uint8), save_meta, weighted_output_path)
-        print(f"Classification pondérée sauvegardée: {weighted_output_path}")
+        # Enregistrer la classification pondérée
+        save_raster(
+            classification_ponderee,
+            os.path.join(config["output_dir"], "classification_ponderee.tif"),
+            meta
+        )
         
-        # Sauvegarde des résultats de la classification standard
-        standard_output_path = os.path.join(config["output_dir"], "classification_standard.tif")
-        save_raster(classification_std.astype(rasterio.uint8), save_meta, standard_output_path)
-        print(f"Classification standard sauvegardée: {standard_output_path}")
+        # Générer les cartes de classification si les visualisations ne sont pas désactivées
+        if not config.get("skip_visualizations", False):
+            # Carte de classification standard
+            generate_classification_map(classification_std, config)
+            
+            # Carte de classification pondérée
+            config["output_suffix"] = "_ponderee"
+            generate_classification_map(classification_ponderee, config)
         
-        # Calculer et sauvegarder la différence entre les classifications
-        print("\nCalcul de la différence entre classifications...")
-        difference = (classification_ponderee != classification_std).astype(np.uint8)
-        difference_output_path = os.path.join(config["output_dir"], "difference_classification.tif")
-        save_raster(difference, save_meta, difference_output_path)
-        print(f"Différence entre classifications sauvegardée: {difference_output_path}")
+        # Génération du graphique de comparaison
+        try:
+            generate_comparison_chart(config["output_dir"])
+        except Exception as e:
+            print(f"\nERREUR lors de la génération du graphique de comparaison: {str(e)}")
+            print(traceback.format_exc())
         
-        # Générer une visualisation de la différence
-        print("Génération de la visualisation de différence...")
-        diff_image_path = os.path.join(config["output_dir"], "difference_classification.png")
-        
-        # Créer une figure pour visualiser la différence
-        plt.figure(figsize=(12, 8), dpi=300)
-        plt.imshow(difference, cmap='hot')
-        plt.colorbar(label='Différence (0=identique, 1=différent)')
-        plt.title('Différence entre Classification Standard et Pondérée', fontsize=16)
-        plt.savefig(diff_image_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Visualisation de différence sauvegardée: {diff_image_path}")
-        
-        # Génération de la carte de classification avec overwrite
-        print("\nGénération de la carte de classification...")
-        # Générer la carte pour la classification pondérée
-        carte_path = r"D:\UQTR\Hiver 2025\Télédétection\TP3\resultats\carte_classification.png"
-        # Supprimer le fichier s'il existe déjà pour s'assurer qu'il est écrasé
-        if os.path.exists(carte_path):
-            try:
-                os.remove(carte_path)
-                print(f"Ancien fichier carte supprimé: {carte_path}")
-            except Exception as e:
-                print(f"Erreur lors de la suppression de l'ancienne carte: {e}")
-        
-        generate_classification_map(classification_ponderee, config)
-        print(f"Carte de classification générée: {carte_path}")
-        
+        # Afficher le temps d'exécution
         end_time = time.time()
         execution_time = end_time - start_time
+        print(f"\nTemps d'exécution total: {execution_time:.2f} secondes")
         
         print("\n" + "=" * 70)
-        print(f" CLASSIFICATION TERMINÉE EN {execution_time:.2f} SECONDES ")
+        print(" CLASSIFICATION TERMINÉE AVEC SUCCÈS ")
         print("=" * 70)
         
-        return True
+        # Retourner les résultats
+        return {
+            "accuracy_std": accuracy_std,
+            "kappa_std": kappa_std,
+            "accuracy_weighted": accuracy_weighted,
+            "kappa_weighted": kappa_weighted,
+            "variance_explained": variance_explained.tolist() if hasattr(variance_explained, 'tolist') else variance_explained
+        }
         
     except Exception as e:
-        print(f"\nERREUR: {str(e)}")
+        print(f"\nERREUR FATALE: {str(e)}")
         print(traceback.format_exc())
-        print("La classification a échoué.")
         return False
 
 def main():

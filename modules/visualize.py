@@ -13,27 +13,43 @@ from matplotlib.colors import ListedColormap, BoundaryNorm
 import seaborn as sns
 import pandas as pd
 
-def visualize_spectral_signatures(classes_info, config):
+def visualize_spectral_signatures(classes_info, config, band_weights=None):
     """
     Génère des visualisations des signatures spectrales des classes.
     
     Args:
         classes_info (dict): Informations sur les classes
         config (dict): Configuration contenant les paramètres de visualisation
+        band_weights (numpy.ndarray, optional): Pondérations des bandes à visualiser
     """
     print("\nGénération des visualisations des signatures spectrales...")
     
     output_dir = config["output_dir"]
     
-    # Graphique des signatures spectrales
-    plt.figure(figsize=(12, 8))
+    # Définir les noms des bandes pour l'affichage
+    band_names = ["B2 - Bleu", "B3 - Vert", "B4 - Rouge", "B5 - RedEdge05", 
+                 "B6 - RedEdge06", "B7 - RedEdge07", "B8 - PIR", "B11 - NIR11", "B12 - NIR12"]
     
+    # S'assurer que nous n'avons que les noms des bandes sélectionnées
+    selected_band_names = [band_names[i-2] for i in config["selected_bands"] if i-2 < len(band_names)]
+    
+    # Graphique des signatures spectrales
+    plt.figure(figsize=(14, 8))
+    
+    # Créer deux sous-graphiques: un pour les signatures, un pour les poids
+    if band_weights is not None:
+        ax1 = plt.subplot(211)  # Signatures spectrales
+        ax2 = plt.subplot(212)  # Poids des bandes
+    else:
+        ax1 = plt.subplot(111)  # Seulement signatures spectrales
+    
+    # Tracer les signatures spectrales
     for class_id, info in classes_info.items():
         class_name = config["class_names"].get(class_id, f"Classe {class_id}")
         color = config["class_colors"].get(class_id, f"C{class_id%10}")
         
-        plt.errorbar(
-            config["selected_bands"], 
+        ax1.errorbar(
+            range(len(selected_band_names)), 
             info['mean'], 
             yerr=info['std'], 
             fmt='o-', 
@@ -44,11 +60,45 @@ def visualize_spectral_signatures(classes_info, config):
             markersize=8
         )
     
-    plt.title('Signatures Spectrales des Classes', fontsize=16)
-    plt.xlabel('Numéro de bande', fontsize=14)
-    plt.ylabel('Réflectance', fontsize=14)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend(fontsize=12)
+    # Configurer le graphique des signatures spectrales
+    ax1.set_title('Signatures Spectrales des Classes', fontsize=16)
+    ax1.set_xlabel('Bande', fontsize=14)
+    ax1.set_ylabel('Réflectance', fontsize=14)
+    ax1.set_xticks(range(len(selected_band_names)))
+    ax1.set_xticklabels(selected_band_names, rotation=45, ha='right')
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.legend(fontsize=12, loc='upper right')
+    
+    # Si des poids sont fournis, les afficher
+    if band_weights is not None:
+        # Assurer que band_weights a la bonne longueur
+        if len(band_weights) < len(selected_band_names):
+            # Étendre avec des 1.0 si nécessaire
+            band_weights = np.pad(band_weights, (0, len(selected_band_names) - len(band_weights)), 
+                                 'constant', constant_values=1.0)
+        elif len(band_weights) > len(selected_band_names):
+            # Tronquer si nécessaire
+            band_weights = band_weights[:len(selected_band_names)]
+        
+        # Créer un graphique à barres pour les poids
+        bars = ax2.bar(range(len(selected_band_names)), band_weights, color='skyblue', 
+                      edgecolor='navy', alpha=0.7)
+        
+        # Ajouter les valeurs au-dessus des barres
+        for i, bar in enumerate(bars):
+            height = bar.get_height()
+            ax2.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                    f'{band_weights[i]:.1f}', ha='center', va='bottom', fontsize=10)
+        
+        # Configurer le graphique des poids
+        ax2.set_title('Pondération des Bandes', fontsize=16)
+        ax2.set_xlabel('Bande', fontsize=14)
+        ax2.set_ylabel('Poids', fontsize=14)
+        ax2.set_xticks(range(len(selected_band_names)))
+        ax2.set_xticklabels(selected_band_names, rotation=45, ha='right')
+        ax2.grid(True, linestyle='--', alpha=0.7, axis='y')
+        ax2.set_ylim(0, max(band_weights) * 1.2)  # Laisser de l'espace pour les étiquettes
+    
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "signatures_spectrales.png"), dpi=300)
     plt.close()
@@ -64,21 +114,24 @@ def visualize_spectral_signatures(classes_info, config):
     
     # Créer un tableau pour toutes les bandes
     headers = ['Classe']
-    for band in config["selected_bands"]:
-        headers.extend([f'Moyenne B{band}', f'Écart-type B{band}'])
+    for i, band_name in enumerate(selected_band_names):
+        headers.extend([f'Moyenne {band_name}', f'Écart-type {band_name}'])
     
     table_data = []
     for cls_id in sorted(spectral_stats.keys()):
         row = [spectral_stats[cls_id]['class_name']]
-        for i, _ in enumerate(config["selected_bands"]):
-            row.extend([
-                f"{spectral_stats[cls_id]['mean'][i]:.2f}",
-                f"{spectral_stats[cls_id]['std'][i]:.2f}"
-            ])
+        for i in range(len(selected_band_names)):
+            if i < len(spectral_stats[cls_id]['mean']):
+                row.extend([
+                    f"{spectral_stats[cls_id]['mean'][i]:.2f}",
+                    f"{spectral_stats[cls_id]['std'][i]:.2f}"
+                ])
+            else:
+                row.extend(['N/A', 'N/A'])
         table_data.append(row)
     
     # Créer le tableau avec statistiques spectrales
-    fig, ax = plt.figure(figsize=(12, len(table_data)*0.5 + 2), dpi=150), plt.subplot(111)
+    fig, ax = plt.figure(figsize=(14, len(table_data)*0.5 + 2), dpi=150), plt.subplot(111)
     ax.axis('tight')
     ax.axis('off')
     table = ax.table(
