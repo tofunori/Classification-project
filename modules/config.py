@@ -30,6 +30,31 @@ class Config:
             "class_column": "Classe",        # Colonne des classes dans le shapefile
             "selected_bands": [2, 3, 4, 5, 6, 7, 8],  # Bandes spécifiques à utiliser
             
+            # Poids optimaux trouvés par optimisation (24/03/2025)
+            "optimal_weights": {
+                "description": "Poids optimaux trouvés par optimisation fine (Kappa: 0.84, Précision: 0.89)",
+                "weights": [0.76, 1.10, 0.91, 1.22, 1.04, 0.99, 1.26],  # B2, B3, B4, B5, B6, B7, B8
+                "band_names": ["B2 - Bleu", "B3 - Vert", "B4 - Rouge", "B5 - RedEdge05", 
+                              "B6 - RedEdge06", "B7 - RedEdge07", "B8 - PIR"],
+                "performance": {
+                    "precision_standard": 0.88,
+                    "kappa_standard": 0.82,
+                    "precision_weighted": 0.89,
+                    "kappa_weighted": 0.84,
+                    "variance_pc": [69.47, 25.52, 3.37]
+                }
+            },
+            "class_optimized_weights": {
+                "description": "Poids optimisés pour les classes spécifiques (Tourbière et Champs)",
+                "weights": [0.73, 1.04, 0.83, 1.43, 1.03, 1.13, 1.57],
+                "band_names": ["B2 - Bleu", "B3 - Vert", "B4 - Rouge", "B5 - RedEdge05", "B6 - RedEdge06", "B7 - RedEdge07", "B8 - PIR"],
+                "target_classes": [3, 5],
+                "performance": {
+                    "fitness": 0.25,
+                    "note": "Fitness est une métrique combinée (70% précision des classes cibles, 30% Kappa global)"
+                }
+            },
+            
             "class_params": {
                 1: [1e-5, 0],   # Eau - Suppression du buffer pour éviter le surclassement
                 2: [1e-4, 0],   # Forêt - Suppression du buffer négatif pour conserver plus d'échantillons
