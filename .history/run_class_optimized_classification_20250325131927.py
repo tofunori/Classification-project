@@ -47,8 +47,7 @@ def main():
         "output_dir": output_dir,
         "validation": {
             "enabled": True,
-            "shapefile_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\points_validation.shp",
-            "class_column": "Class_code"
+            "shapefile_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\points_validation.shp"
         },
         "comparison": {
             "enabled": True,

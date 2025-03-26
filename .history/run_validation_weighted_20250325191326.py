@@ -1,8 +1,8 @@
 """
-CLASSIFICATION AVEC POIDS OPTIMISÉS PAR CLASSE
-=================================
-Ce script exécute une classification en utilisant les poids optimisés
-spécifiquement pour améliorer les classes problématiques (Tourbière et Champs).
+VALIDATION AVEC POIDS OPTIMISÉS PAR CLASSE
+=========================================
+Ce script exécute une classification avec poids optimisés et une 
+validation basée uniquement sur les points de validation.
 """
 
 import os
@@ -10,11 +10,12 @@ import sys
 from datetime import datetime
 from modules.config import Config
 from main import run_classification
+import numpy as np
 
 def main():
     """Point d'entrée principal du programme."""
     print("=" * 70)
-    print(" CLASSIFICATION AVEC POIDS OPTIMISÉS PAR CLASSE ")
+    print(" VALIDATION AVEC POIDS OPTIMISÉS (BASÉE SUR LES POINTS DE RÉFÉRENCE) ")
     print("=" * 70)
     
     # Charger la configuration
@@ -37,12 +38,12 @@ def main():
     
     # Créer un répertoire de sortie avec horodatage
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(config["output_dir"], f"class_optimized_classification_{timestamp}")
+    output_dir = os.path.join(config["output_dir"], f"validation_weighted_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"\nRépertoire de sortie: {output_dir}")
     
-    # S'assurer que la validation est activée et correctement configurée
+    # S'assurer que la validation est activée et la comparaison désactivée
     custom_config = {
         "output_dir": output_dir,
         "validation": {
@@ -51,8 +52,7 @@ def main():
             "class_column": "Class_code"
         },
         "comparison": {
-            "enabled": True,
-            "raster_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\resultats\classification_mlc.tif"
+            "enabled": False  # Désactiver la comparaison avec le raster de référence
         }
     }
     
@@ -62,21 +62,12 @@ def main():
     
     if results:
         print("\nRésultats de la classification:")
-        print(f"  Précision: {results.get('accuracy_weighted', 0):.4f}")
-        print(f"  Kappa: {results.get('kappa_weighted', 0):.4f}")
-        
-        # Afficher les précisions par classe
-        print("\nPrécision par classe:")
-        for class_id in sorted(config["class_names"].keys()):
-            class_name = config["class_names"][class_id]
-            class_accuracy = results.get(f"class_{class_id}_accuracy", 0)
-            print(f"  Classe {class_id} ({class_name}): {class_accuracy:.4f}")
-            
-            # Mettre en évidence les classes cibles
-            if class_id in target_classes:
-                print(f"    ^ Classe cible optimisée")
+        print(f"  Précision validation: {results.get('accuracy_weighted', 0):.4f}")
+        print(f"  Kappa validation: {results.get('kappa_weighted', 0):.4f}")
     
-    print("\nClassification terminée avec succès!")
+    print("\nValidation terminée avec succès!")
+    print("\nVoir la matrice de confusion en pourcentage dans:")
+    print(f"{output_dir}/matrice_confusion_pourcent.png")
 
 if __name__ == "__main__":
-    main()
+    main() 

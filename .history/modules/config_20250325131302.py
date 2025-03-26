@@ -84,7 +84,7 @@ class Config:
             
             # Paramètres de validation
             "validation": {
-                "enabled": True,  # Activer/désactiver la validation
+                "enabled": False,  # Activer/désactiver la validation
                 "shapefile_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\points_validation.shp"
             },
             "comparison": {

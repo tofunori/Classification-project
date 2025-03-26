@@ -42,23 +42,9 @@ def main():
     
     print(f"\nRépertoire de sortie: {output_dir}")
     
-    # S'assurer que la validation est activée et correctement configurée
-    custom_config = {
-        "output_dir": output_dir,
-        "validation": {
-            "enabled": True,
-            "shapefile_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\points_validation.shp",
-            "class_column": "Class_code"
-        },
-        "comparison": {
-            "enabled": True,
-            "raster_path": r"D:\UQTR\Hiver 2025\Télédétection\TP3\resultats\classification_mlc.tif"
-        }
-    }
-    
     # Exécuter la classification avec les poids optimisés par classe
     print("\nLancement de la classification...")
-    results = run_classification(output_dir=output_dir, weights=class_weights, custom_config=custom_config)
+    results = run_classification(output_dir=output_dir, weights=class_weights)
     
     if results:
         print("\nRésultats de la classification:")

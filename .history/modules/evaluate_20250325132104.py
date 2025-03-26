@@ -47,14 +47,7 @@ def validate_classification(classification, config):
     
     # Pour chaque polygone de validation
     for _, row in validation_data.iterrows():
-        # Ignorer les entrées avec des valeurs de classe nulles ou NaN
-        if pd.isna(row[class_column]):
-            continue
-            
         class_id = row[class_column]
-        # Convertir en entier si c'est un float
-        if isinstance(class_id, float):
-            class_id = int(class_id)
         geom = row.geometry
         
         # Convertir la géométrie en coordonnées pixels
@@ -92,13 +85,7 @@ def validate_classification(classification, config):
         report_data = []
         for cls, metrics in report.items():
             if cls not in ['accuracy', 'macro avg', 'weighted avg']:
-                try:
-                    # Tenter de convertir en entier
-                    cls_id = int(float(cls))
-                    cls_name = config["class_names"].get(cls_id, f"Classe {cls}")
-                except (ValueError, TypeError):
-                    # Si ce n'est pas possible, utiliser la valeur telle quelle
-                    cls_name = f"Classe {cls}"
+                cls_name = config["class_names"].get(int(cls), f"Classe {cls}")
                 report_data.append([
                     cls_name,
                     f"{metrics['precision']:.2f}",
@@ -151,15 +138,7 @@ def validate_classification(classification, config):
         
         # Générer un graphique de la matrice de confusion
         plt.figure(figsize=(10, 8))
-        # Convertir les classes en entiers si possible
-        class_ids = []
-        for cls in np.unique(y_true):
-            try:
-                class_ids.append(int(float(cls)))
-            except (ValueError, TypeError):
-                class_ids.append(cls)
-        
-        class_names = [config["class_names"].get(cls, f"Classe {cls}") for cls in class_ids]
+        class_names = [config["class_names"].get(cls, f"Classe {cls}") for cls in np.unique(y_true)]
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
                     xticklabels=class_names, 
                     yticklabels=class_names)
@@ -168,21 +147,6 @@ def validate_classification(classification, config):
         plt.xlabel('Classe prédite')
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "matrice_confusion.png"), dpi=300)
-        plt.close()
-        
-        # Ajouter une matrice de confusion en pourcentage
-        plt.figure(figsize=(10, 8))
-        # Normaliser la matrice de confusion (pourcentage par ligne)
-        cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
-        
-        sns.heatmap(cm_percent, annot=True, fmt='.1f', cmap='Blues', 
-                    xticklabels=class_names, 
-                    yticklabels=class_names)
-        plt.title(f'Matrice de Confusion - Pourcentages (%)\nPrécision: {accuracy:.2f}, Kappa: {kappa:.2f}')
-        plt.ylabel('Classe réelle')
-        plt.xlabel('Classe prédite')
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "matrice_confusion_pourcent.png"), dpi=300)
         plt.close()
         
         print("Validation terminée et résultats sauvegardés")

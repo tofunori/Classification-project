@@ -21,7 +21,7 @@ from datetime import datetime
 from modules.data_loader import create_output_directory, load_and_check_data, save_raster
 from modules.train import extract_training_samples
 from modules.model import perform_classification, perform_classification_weighted
-from modules.evaluate import compare_classifications, validate_classification
+from modules.evaluate import compare_classifications
 from modules.visualize import generate_classification_map, create_scatterplots, create_pca_scatterplots, visualize_spectral_signatures
 
 def log_classification_results(output_dir, weights, accuracy_std, kappa_std, accuracy_weighted, kappa_weighted, variance_explained=None):
@@ -344,9 +344,8 @@ def run_classification(input_path=None, output_dir=None, custom_config=None, wei
         for i, weight in enumerate(optimized_weights):
             print(f"  Bande {i+1}: {weight:.2f}")
         
-        # Convertir en tableau NumPy si c'est une liste
-        if isinstance(optimized_weights, list):
-            optimized_weights = np.array(optimized_weights)
+        # Pour vérification des dimensions
+        print(f"Dimensions du raster: {raster_data.shape}")
         print(f"Dimensions du tableau de poids: {optimized_weights.shape}")
         
         # Vérification d'une classe d'entraînement pour ses dimensions
@@ -465,33 +464,6 @@ def run_classification(input_path=None, output_dir=None, custom_config=None, wei
                 print(traceback.format_exc())
         else:
             print("\nComparaison désactivée dans la configuration.")
-        
-        # Ajout de la validation avec les points de validation
-        print("\n--- Validation avec points de référence ---")
-        
-        # Validation de la classification standard
-        print("\nValidation de la classification standard...")
-        validation_std = validate_classification(classification_std, config)
-        if validation_std:
-            # Mettre à jour les métriques si la comparaison n'est pas activée
-            if not config["comparison"]["enabled"]:
-                accuracy_std = validation_std['accuracy']
-                kappa_std = validation_std['kappa']
-                
-            print(f"Validation standard - Précision: {validation_std['accuracy']:.2f}")
-            print(f"Validation standard - Kappa: {validation_std['kappa']:.2f}")
-        
-        # Validation de la classification pondérée
-        print("\nValidation de la classification pondérée...")
-        validation_ponderee = validate_classification(classification_ponderee, config)
-        if validation_ponderee:
-            # Mettre à jour les métriques si la comparaison n'est pas activée
-            if not config["comparison"]["enabled"]:
-                accuracy_weighted = validation_ponderee['accuracy']
-                kappa_weighted = validation_ponderee['kappa']
-                
-            print(f"Validation pondérée - Précision: {validation_ponderee['accuracy']:.2f}")
-            print(f"Validation pondérée - Kappa: {validation_ponderee['kappa']:.2f}")
         
         # Enregistrer les résultats dans le fichier de log
         try:

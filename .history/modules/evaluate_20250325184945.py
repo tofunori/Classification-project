@@ -170,21 +170,6 @@ def validate_classification(classification, config):
         plt.savefig(os.path.join(output_dir, "matrice_confusion.png"), dpi=300)
         plt.close()
         
-        # Ajouter une matrice de confusion en pourcentage
-        plt.figure(figsize=(10, 8))
-        # Normaliser la matrice de confusion (pourcentage par ligne)
-        cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
-        
-        sns.heatmap(cm_percent, annot=True, fmt='.1f', cmap='Blues', 
-                    xticklabels=class_names, 
-                    yticklabels=class_names)
-        plt.title(f'Matrice de Confusion - Pourcentages (%)\nPrécision: {accuracy:.2f}, Kappa: {kappa:.2f}')
-        plt.ylabel('Classe réelle')
-        plt.xlabel('Classe prédite')
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "matrice_confusion_pourcent.png"), dpi=300)
-        plt.close()
-        
         print("Validation terminée et résultats sauvegardés")
         return {
             'accuracy': accuracy,
